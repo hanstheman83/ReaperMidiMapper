@@ -26,11 +26,11 @@ loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/GUILibrary/Modules/Wi
 -- Custom L-GUI
 
 -- Extra Functions
-loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/MidiTempoMap/Note.lua")()
+loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/MidiTempoMapper/Source/Note.lua")()
 
 -- local Notes = require "classes"
 
-local helper = dofile "C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/HelperScripts/HelperFunctions.lua"
+local helper = dofile "C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/MidiTempoMapper/Source/HelperFunctions.lua"
 
 ----------------------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -67,25 +67,32 @@ local function Msg(param)
     reaper.ShowConsoleMsg(tostring(param).."\n")
 end
 
-local function CalculateBPM()
-    Msg("Button Calculate BPM pressed")
-    local activeMidiEditor = reaper.MIDIEditor_GetActive()
-    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
+--------------- For CalculateBPM() -----------------
+
+local function GetProjTimeNextMeasure(activeTake, note)
+    local startPPQNextMeasure = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, listSelectedNotes[1].startppqpos) 
+    -- Msg("Start ppq next measure "..startPPQNextMeasure)
+    return reaper.MIDI_GetProjTimeFromPPQPos(activeTake, startPPQNextMeasure) 
+end
+
+
+local function InitializeNotesInList(activeTake, notesList)
+    for note in notesList do 
+        note.CalculateStartAndEndInProjTime()
+    end
+end
+
+local function GetListAllMidiNotesAndAllSelected(activeTake)
     local listAllNotes = {} -- index starts at 1
     local listSelectedNotes = {}
-    
-    local retval = reaper.MIDI_GetNote(activeTake, 0) -- bool
+    local retval = reaper.MIDI_GetNote(activeTake, 0) -- bool, check there is a 1st note in take
     local isSelected
     local isMuted
-    
     local currentNoteIdx = 0
     local selectedIdx = 1 -- lua lists starts at 1
     local midiNote
-    
-    
-    
-    -- list of all notes
-    while retval do
+
+    while retval do -- list of selected and all notes
         midiNote = Note:New()
         retval, isSelected, isMuted,
         midiNote.startppqpos, midiNote.endppqpos, 
@@ -100,39 +107,33 @@ local function CalculateBPM()
         currentNoteIdx = currentNoteIdx + 1
         retval = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
     end
-    
-    -- need start ppq next measure 
-    
-    for index, note in pairs(listSelectedNotes) do 
+    return listAllNotes, listSelectedNotes
+end
+
+local function CalculateBPM()
+    Msg("Button Calculate BPM pressed")
+    local activeMidiEditor = reaper.MIDIEditor_GetActive()
+    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
+    local listAllNotes = {} -- index starts at 1
+    local listSelectedNotes = {}
+    listAllNotes, listSelectedNotes = GetListAllMidiNotesAndAllSelected(activeTake)
+    --[[ -- print all selected notes start ppq
+     for index, note in pairs(listSelectedNotes) do 
         Msg("Selected Note "..index.. " start ppq "..note.startppqpos)
     end
+    --]]
+    InitializeNotesInList(activeTake, listAllNotes)
+    local time_new = GetTimeN() -- start new BPM from here..
+    local time_zero = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, listSelectedNotes[1].startppqpos)
     
-    local startPPQNextMeasure = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, listSelectedNotes[1].startppqpos)
-    Msg("Start ppq next measure "..startPPQNextMeasure)
-    local time_zero = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, startPPQNextMeasure)
-    -- save time position of all notes and cc data 
-    
-    
-    -- create recalculated midi events from time_zero
-    
-    
-    -- while currentNoteIdx ~= -1 do
-    --     midiNote = Note:New()
-    --     retval, isSelected, isMuted,
-    --     midiNote.startppqpos, midiNote.endppqpos, 
-    --     midiNote.chan, midiNote.pitch, midiNote.vel = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
-    --     Msg("Note "..currentNoteIdx.." Start pos "..midiNote.startppqpos)
-
-    --     listAllNotes[currentNoteIdx + 1] = midiNote
-        
-    -- -- incr currentNoteIdx
-    -- currentNoteIdx = reaper.MIDI_EnumSelNotes(activeTake, currentNoteIdx)
-    -- end
-
-    -- need length between start of each note 
-    
-
 end
+
+
+
+
+    
+
+    
 
 local function SetBPM()
     Msg("Set BPM button pressed")
@@ -164,6 +165,7 @@ local function InitializeGUI()
 
     -- Debug Buttons
     GUI.New("btn_CalculateBPM", "Button", 1, 30,30, 124,24, "Calculate BPM", CalculateBPM)
+
     GUI.New("btn_SetBPM", "Button", 1, 30,60, 124,24, "Set BPM", SetBPM)
 
   

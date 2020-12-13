@@ -3,13 +3,14 @@
 -- auto update from Lua - keep track of midi changes ?
 
 Note = { 
-    length = 0, -- in msec
     startTime = 0,
+    endTime = 0,
     startppqpos = 0,
     endppqpos = 0,
     chan = 0,
     pitch = 0,
-    vel = 0
+    vel = 0,
+    isInitialized = false
 }
 
 function Note:New(o)
@@ -19,9 +20,23 @@ function Note:New(o)
     return o 
 end
 
-function Note:CalculateLength()
-    self.length = 0;
+function Note:CalculateStartAndEndInProjTime(activeTake) -- in sec
+    self.startTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, startppqpos)
+    self.endTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, endppqpos)
+    self.isInitialized = true
 end
+
+function Note:GetLengthInProjTime()
+    if not self.isInitialized then 
+        -- 
+        reaper.MB("Note not initialized!","Note.lua error", 0)
+        return 0
+    end
+    return self.endTime - self.startTime
+    
+end
+
+
 
 
    
