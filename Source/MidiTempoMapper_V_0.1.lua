@@ -25,8 +25,9 @@ loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/GUILibrary/Modules/Wi
 
 -- Custom L-GUI
 
--- Extra Functions
+-- Extra Classes
 loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/MidiTempoMapper/Source/Note.lua")()
+loadfile("C:/Users/pract/Documents/Repos/ReaperPlugins/Lua/MidiTempoMapper/Source/CC.lua")()
 
 -- local Notes = require "classes"
 
@@ -45,11 +46,18 @@ local exitChar = 0
 ---[[
 ---------- GUI Ini
 local guiName = "Midi Tempo Mapper - Version 0.1"
-local guiHeight = 800
+local guiHeight = 200
 local guiWidth = 500
 
 -- Buttons
 
+-- variables
+local timeMap
+local time_new
+local time_zero
+local listAllNotes -- index starts at 1
+local listSelectedNotes
+local listAllCC
 
 --]]
 
@@ -68,6 +76,29 @@ local function Msg(param)
 end
 
 --------------- For CalculateBPM() -----------------
+local function GetTimeN(activeTake, startppqpos)
+    local ppqNextMeasure = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, startppqpos)
+    return reaper.MIDI_GetProjTimeFromPPQPos(activeTake, ppqNextMeasure)
+end
+
+local function CalculateTimeMapFromQuarterNotes(quarterNotesList)
+    -- create list start 1st note to start 2nd note
+    local timeMap = {};
+    local distanceStartToStart
+    local startLastNote
+    local timeMapIndex = 1
+    for i, n in ipairs(quarterNotesList) do 
+        if i ~= 1 then
+            distanceStartToStart = n.startTime - startLastNote -- beat length in sec
+            timeMap[timeMapIndex] = { ["time"] = startLastNote, ["BPM"] = 60/distanceStartToStart} -- calc BPM
+            timeMapIndex = timeMapIndex + 1
+        end
+        startLastNote = quarterNotesList[i].startTime
+    end
+    -- return timemap : time in sec, BPM
+    return timeMap
+end
+
 
 local function GetProjTimeNextMeasure(activeTake, note)
     local startPPQNextMeasure = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, listSelectedNotes[1].startppqpos) 
@@ -77,29 +108,47 @@ end
 
 
 local function InitializeNotesInList(activeTake, notesList)
-    for note in notesList do 
-        note.CalculateStartAndEndInProjTime()
+    for i, note in ipairs(notesList) do 
+        note:CalculateStartAndEndInProjTime(activeTake)
     end
+end
+
+local function GetListAllCC(activeTake)
+    local listAllCC = {}
+    local retval = reaper.MIDI_GetCC(activeTake, 0)
+    local currentCC_Idx = 0
+    local cc
+
+    while retval do 
+        cc = CC:New()
+        retval, cc.isSelected, cc.isMuted, cc.ppqpos, cc.chanmsg, 
+        cc.chan, cc.msg2, cc.msg3 = 
+        reaper.MIDI_GetCC(activeTake, currentCC_Idx)
+        listAllCC[currentCC_Idx+1] = cc
+        currentCC_Idx = currentCC_Idx + 1
+        retval = reaper.MIDI_GetCC(activeTake, currentCC_Idx)
+    end
+
+    return listAllCC
+
 end
 
 local function GetListAllMidiNotesAndAllSelected(activeTake)
     local listAllNotes = {} -- index starts at 1
     local listSelectedNotes = {}
     local retval = reaper.MIDI_GetNote(activeTake, 0) -- bool, check there is a 1st note in take
-    local isSelected
-    local isMuted
     local currentNoteIdx = 0
     local selectedIdx = 1 -- lua lists starts at 1
     local midiNote
 
     while retval do -- list of selected and all notes
         midiNote = Note:New()
-        retval, isSelected, isMuted,
+        retval, midiNote.isSelected, midiNote.isMuted,
         midiNote.startppqpos, midiNote.endppqpos, 
         midiNote.chan, midiNote.pitch, midiNote.vel = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
-        Msg("Note "..tostring(currentNoteIdx+1).." Start pos "..midiNote.startppqpos)
-        Msg("retval "..tostring(retval))
-        if isSelected then
+        -- Msg("Note "..tostring(currentNoteIdx+1).." Start pos "..midiNote.startppqpos)
+        -- Msg("retval "..tostring(retval))
+        if midiNote.isSelected then
             listSelectedNotes[selectedIdx] = midiNote 
             selectedIdx = selectedIdx + 1
         end
@@ -110,35 +159,125 @@ local function GetListAllMidiNotesAndAllSelected(activeTake)
     return listAllNotes, listSelectedNotes
 end
 
-local function CalculateBPM()
+local function CreateMidiNotesInNewItem(newMediaItem, timeOffset)
+    local take = reaper.GetMediaItemTake(newMediaItem, 0)
+    local startppqpos, endppqpos
+    
+    for i,n in ipairs(listAllNotes) do 
+        startppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, n.startTime + timeOffset)
+        endppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, n.endTime + timeOffset)
+        reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
+            endppqpos, n.chan, n.pitch, n.vel)
+    end
+end
+
+
+
+-------------------------------------------------------------------
+------------------------- UI Callbacks ----------------------------
+-------------------------------------------------------------------
+
+
+
+local function OnCalculateBPM_Pressed()
     Msg("Button Calculate BPM pressed")
+    -- 
     local activeMidiEditor = reaper.MIDIEditor_GetActive()
     local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
-    local listAllNotes = {} -- index starts at 1
-    local listSelectedNotes = {}
+    listAllNotes = {} -- index starts at 1
+    listSelectedNotes = {}
     listAllNotes, listSelectedNotes = GetListAllMidiNotesAndAllSelected(activeTake)
+    listAllCC = GetListAllCC(activeTake)
+    -- cc data 
+    for i,cc in ipairs(listAllCC) do 
+        Msg("CC with index "..i.." ")
+    end
+
     --[[ -- print all selected notes start ppq
      for index, note in pairs(listSelectedNotes) do 
         Msg("Selected Note "..index.. " start ppq "..note.startppqpos)
     end
     --]]
+
     InitializeNotesInList(activeTake, listAllNotes)
-    local time_new = GetTimeN() -- start new BPM from here..
-    local time_zero = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, listSelectedNotes[1].startppqpos)
-    
+
+
+    -- TODO crashes when no notes selected
+    time_new = GetTimeN(activeTake, listSelectedNotes[1].startppqpos) -- start new BPM from here.. // proj time in sec
+
+
+    time_zero = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, listSelectedNotes[1].startppqpos) -- // proj time in sec
+    timeMap = CalculateTimeMapFromQuarterNotes(listSelectedNotes) -- all selected notes should be quarter notes.
+    -- print map
+    ---[[
+    Msg("TimeMap :")
+    for i, timeBPM in ipairs(timeMap) do 
+        Msg("index "..i)
+        Msg("Has time : "..timeBPM["time"].." and BPM "..timeBPM["BPM"])
+    end
+    --]]
 end
 
-
-
-
-    
-
-    
-
-local function SetBPM()
+local function OnSetBPM_Pressed()
     Msg("Set BPM button pressed")
+    local activeMidiEditor = reaper.MIDIEditor_GetActive()
+    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
+    local startFirstMeasurePPQ = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, listSelectedNotes[1].startppqpos) -- we will calculate new tempi from here..
+    local startFirstMeasureQN = reaper.MIDI_GetProjQNFromPPQPos(activeTake, startFirstMeasurePPQ)
+    local firstMeasure
+    firstMeasure = reaper.TimeMap_QNToMeasures(0, startFirstMeasureQN) -- which measure QN falls in
+    local beat = 0
+    local measure = firstMeasure - 1 -- why ?
+
+    for i, timeBPM in ipairs(timeMap) do 
+        reaper.SetTempoTimeSigMarker(0, -1, -1, measure, beat, timeBPM["BPM"], 0, 0, false)
+        beat = beat + 1
+
+        if beat > 3 then 
+            beat = 0
+            measure = measure + 1
+        end
+    end
 end
 
+local function OnChangeNotes_Pressed()
+    Msg("Change Notes Pressed")
+    -- delete media item 
+    local activeMidiEditor = reaper.MIDIEditor_GetActive()
+    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
+    local activeMediaItem = reaper.GetMediaItemTake_Item(activeTake)
+    local mediaTrack = reaper.GetMediaItem_Track(activeMediaItem)
+    
+    -- Delete media item
+    ifItemWasDeleted = reaper.DeleteTrackMediaItem(mediaTrack, activeMediaItem)
+    if(ifItemWasDeleted) then Msg("Media Item deleted!") end
+    
+    -- create new item
+    -- endtime = startTime nextMeasure from end of last note in 'listAllNotes'
+    local timeOffset = time_new - time_zero -- add this to all new created notes
+    local endNewMediaItem = listAllNotes[#listAllNotes].endTime + timeOffset
+    -- TODO start item 1 beat earlier, ramp up cc data..
+    local fallInForCC = 1 -- 1 sec earlier than first note start cc data
+    local tail = 1 -- 1 sec tail for cc data
+    newMediaItem = reaper.CreateNewMIDIItemInProj(mediaTrack, time_new - fallInForCC, endNewMediaItem + tail, false)
+    --
+    CreateMidiNotesInNewItem(newMediaItem, timeOffset)
+
+
+    -- from list
+    --[[
+    listAllNotes
+    -- Displace all notes by [time_new - time_zero]
+    --]]
+
+    -----------------------------
+    -----------------------------
+    -- TODO
+    -- include CC data
+
+
+
+end
 
 
 ------------------------------------------------------------------------------
@@ -164,10 +303,11 @@ local function InitializeGUI()
     GUI.anchor, GUI.corner = "mouse", "C"
 
     -- Debug Buttons
-    GUI.New("btn_CalculateBPM", "Button", 1, 30,30, 124,24, "Calculate BPM", CalculateBPM)
-
-    GUI.New("btn_SetBPM", "Button", 1, 30,60, 124,24, "Set BPM", SetBPM)
-
+    GUI.New("btn_CalculateBPM", "Button", 1, 30,30, 124,24, "Calculate BPM Time map", OnCalculateBPM_Pressed)
+    GUI.New("btn_SetBPM", "Button", 1, 30,60, 124,24, "Set BPM", OnSetBPM_Pressed)
+    GUI.New("btn_ChangeNotes", "Button", 1, 30,90, 124,24, "Change Notes", OnChangeNotes_Pressed)
+    
+    
   
 
     
@@ -187,7 +327,7 @@ end
 local function Main()
     local char = gfx.getchar()
     if char ~= 27 and char ~= -1 and exitChar ~= 27 then
-
+        reaper.time_precise()
         -- Msg("main is running!")
 
         -- Delayed Update Loop --
@@ -235,22 +375,7 @@ Main()
 
 -- Class test!
 
--- a = Note:new()
--- b = Note:new()
--- c = Note:new()
--- Msg("balance b: "..b.balance)
--- b:deposit(200)
--- Msg("balance b: "..b.balance)
--- Msg("balance a : "..a.balance)
--- Note.balance = 0
--- Msg("balance b: "..b.balance)
--- a:deposit(300)
--- Note.balance = 0
--- Msg("balance a : "..a.balance)
--- Msg("balance b: "..b.balance)
--- a.balance = -10
--- Msg("balance a : "..a.balance)
--- Msg("balance Note : "..Note.balance)
+
 
 
 
