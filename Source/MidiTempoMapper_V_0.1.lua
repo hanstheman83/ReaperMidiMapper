@@ -113,11 +113,14 @@ local function InitializeNotesInList(activeTake, notesList)
     end
 end
 
-local function GetListAllCC(activeTake)
+local function GetListAllCC(activeTake) -- and ini cc
     local listAllCC = {}
     local retval = reaper.MIDI_GetCC(activeTake, 0)
     local currentCC_Idx = 0
     local cc
+
+    -- get shape : boolean retval, number shape, number beztension = reaper.MIDI_GetCCShape(MediaItem_Take take, integer ccidx)
+    -- add shape : Lua: boolean reaper.MIDI_SetCCShape(MediaItem_Take take, integer ccidx, integer shape, number beztension, optional boolean noSortIn)
 
     while retval do 
         cc = CC:New()
@@ -125,6 +128,7 @@ local function GetListAllCC(activeTake)
         cc.chan, cc.msg2, cc.msg3 = 
         reaper.MIDI_GetCC(activeTake, currentCC_Idx)
         listAllCC[currentCC_Idx+1] = cc
+        cc:CalculateStartInProjTime(activeTake)
         currentCC_Idx = currentCC_Idx + 1
         retval = reaper.MIDI_GetCC(activeTake, currentCC_Idx)
     end
@@ -171,13 +175,23 @@ local function CreateMidiNotesInNewItem(newMediaItem, timeOffset)
     end
 end
 
+local function CreateCC_DataInNewItem(newMediaItem, timeOffset)
+    local take = reaper.GetMediaItemTake(newMediaItem, 0)
+    local ppqpos
+    for i, cc in ipairs(listAllCC) do 
+        ppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, cc.startTime + timeOffset)
+        wasInserted = reaper.MIDI_InsertCC(take, cc.isSelected, cc.isMuted, ppqpos, cc.chanmsg,
+            cc.chan, cc.msg2, cc.msg3)
+        --Msg("cc "..i.." inserted : "..helper.BoolToString(wasInserted)) -- inserts also before clip starts!
+        -- TODO add correct shape to inserted cc
+    end
+end
+
 
 
 -------------------------------------------------------------------
 ------------------------- UI Callbacks ----------------------------
 -------------------------------------------------------------------
-
-
 
 local function OnCalculateBPM_Pressed()
     Msg("Button Calculate BPM pressed")
@@ -187,29 +201,22 @@ local function OnCalculateBPM_Pressed()
     listAllNotes = {} -- index starts at 1
     listSelectedNotes = {}
     listAllNotes, listSelectedNotes = GetListAllMidiNotesAndAllSelected(activeTake)
-    listAllCC = GetListAllCC(activeTake)
+    listAllCC = GetListAllCC(activeTake) -- and initialize
     -- cc data 
     for i,cc in ipairs(listAllCC) do 
         Msg("CC with index "..i.." ")
     end
 
-    --[[ -- print all selected notes start ppq
-     for index, note in pairs(listSelectedNotes) do 
-        Msg("Selected Note "..index.. " start ppq "..note.startppqpos)
-    end
-    --]]
-
     InitializeNotesInList(activeTake, listAllNotes)
 
+    -- TODO add more clips!
 
     -- TODO crashes when no notes selected
     time_new = GetTimeN(activeTake, listSelectedNotes[1].startppqpos) -- start new BPM from here.. // proj time in sec
-
-
     time_zero = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, listSelectedNotes[1].startppqpos) -- // proj time in sec
     timeMap = CalculateTimeMapFromQuarterNotes(listSelectedNotes) -- all selected notes should be quarter notes.
-    -- print map
-    ---[[
+    
+    --[[
     Msg("TimeMap :")
     for i, timeBPM in ipairs(timeMap) do 
         Msg("index "..i)
@@ -262,21 +269,7 @@ local function OnChangeNotes_Pressed()
     newMediaItem = reaper.CreateNewMIDIItemInProj(mediaTrack, time_new - fallInForCC, endNewMediaItem + tail, false)
     --
     CreateMidiNotesInNewItem(newMediaItem, timeOffset)
-
-
-    -- from list
-    --[[
-    listAllNotes
-    -- Displace all notes by [time_new - time_zero]
-    --]]
-
-    -----------------------------
-    -----------------------------
-    -- TODO
-    -- include CC data
-
-
-
+    CreateCC_DataInNewItem(newMediaItem, timeOffset)
 end
 
 

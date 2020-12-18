@@ -12,7 +12,13 @@ return
     BoolToInt = function (bool)
         local convert = {[true] = 1, [false] = 0}
         return convert[bool]
+    end,
+    
+    BoolToString = function (bool)
+        local convert = {[true] = "true", [false] = "false"}
+        return convert[bool]
     end
+
 
     
     
