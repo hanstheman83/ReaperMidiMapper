@@ -7,7 +7,9 @@ CC = {
     msg3 = 0,
     isMuted = false,
     isSelected = false,
-    isInitialized = false
+    isInitialized = false,
+    shape = 0,
+    beztension = 0
 }
 
 function CC:New(o)
