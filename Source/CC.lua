@@ -1,3 +1,7 @@
+local function Msg(param) 
+    reaper.ShowConsoleMsg(tostring(param).."\n")
+end
+
 CC = {
     startTime = 0, -- 
     ppqpos = 0,

@@ -3,7 +3,9 @@
 -- auto update from Lua - keep track of midi changes ?
 
     
-
+local function Msg(param) 
+    reaper.ShowConsoleMsg(tostring(param).."\n")
+end
 
 
 Note = {
